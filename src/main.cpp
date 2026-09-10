@@ -25,45 +25,52 @@
 #define PCLK_GPIO_NUM     22
 #define FLASH_GPIO_NUM    4
 
-#define FLASH_LEDC_CHANNEL 7
-#define FLASH_LEDC_FREQ    5000
-#define FLASH_LEDC_BITS    8
-#define FLASH_BRIGHTNESS   26
-
 WebServer server(80);
-
-void configurarFlash() {
-
-    ledcSetup(
-        FLASH_LEDC_CHANNEL,
-        FLASH_LEDC_FREQ,
-        FLASH_LEDC_BITS
-    );
-
-    ledcAttachPin(
-        FLASH_GPIO_NUM,
-        FLASH_LEDC_CHANNEL
-    );
-
-    ledcWrite(
-        FLASH_LEDC_CHANNEL,
-        0
-    );
-}
-
-void ligarFlash() {
-
-    ledcWrite(
-        FLASH_LEDC_CHANNEL,
-        FLASH_BRIGHTNESS
-    );
-}
 
 void desligarFlash() {
 
-    ledcWrite(
-        FLASH_LEDC_CHANNEL,
-        0
+    pinMode(FLASH_GPIO_NUM, OUTPUT);
+
+    digitalWrite(
+        FLASH_GPIO_NUM,
+        LOW
+    );
+}
+
+void configurarSensorCamera() {
+
+    sensor_t *sensor = esp_camera_sensor_get();
+
+    if (!sensor) {
+
+        Serial.println(
+            "Nao foi possivel configurar o sensor."
+        );
+
+        return;
+    }
+
+    sensor->set_brightness(sensor, 1);
+    sensor->set_contrast(sensor, 2);
+    sensor->set_saturation(sensor, -2);
+    sensor->set_sharpness(sensor, 2);
+    sensor->set_denoise(sensor, 1);
+
+    sensor->set_whitebal(sensor, 1);
+    sensor->set_awb_gain(sensor, 1);
+    sensor->set_gain_ctrl(sensor, 1);
+    sensor->set_exposure_ctrl(sensor, 1);
+    sensor->set_aec2(sensor, 1);
+    sensor->set_ae_level(sensor, 1);
+    sensor->set_gainceiling(sensor, GAINCEILING_4X);
+
+    sensor->set_bpc(sensor, 1);
+    sensor->set_wpc(sensor, 1);
+    sensor->set_lenc(sensor, 1);
+    sensor->set_raw_gma(sensor, 1);
+
+    Serial.println(
+        "Sensor configurado para leitura de QR Code."
     );
 }
 
@@ -159,6 +166,8 @@ bool iniciarCamera() {
         "Camera inicializada com sucesso!"
     );
 
+    configurarSensorCamera();
+
     return true;
 }
 
@@ -224,7 +233,6 @@ void capturarImagem() {
     Serial.println();
     Serial.println("Solicitacao de captura recebida.");
 
-    ligarFlash();
     delay(150);
 
     camera_fb_t *frameAntigo = esp_camera_fb_get();
@@ -235,8 +243,6 @@ void capturarImagem() {
     delay(80);
 
     camera_fb_t *foto = esp_camera_fb_get();
-
-    desligarFlash();
 
     if (!foto) {
 
@@ -281,7 +287,7 @@ void setup() {
 
     Serial.begin(115200);
 
-    configurarFlash();
+    desligarFlash();
 
     delay(2000);
 
