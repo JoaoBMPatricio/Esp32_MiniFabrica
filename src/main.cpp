@@ -4,10 +4,6 @@
 #include "esp_camera.h"
 #include "secrets.h"
 
-// ==============================
-// PINAGEM ESP32-CAM AI THINKER
-// ==============================
-
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -29,17 +25,7 @@
 #define PCLK_GPIO_NUM     22
 #define FLASH_GPIO_NUM    4
 
-
-// ==============================
-// SERVIDOR WEB
-// ==============================
-
 WebServer server(80);
-
-
-// ==============================
-// WIFI
-// ==============================
 
 void conectarWiFi() {
 
@@ -67,11 +53,6 @@ void conectarWiFi() {
     Serial.print("Endereco IP: ");
     Serial.println(WiFi.localIP());
 }
-
-
-// ==============================
-// CAMERA
-// ==============================
 
 bool iniciarCamera() {
 
@@ -141,11 +122,6 @@ bool iniciarCamera() {
     return true;
 }
 
-
-// ==============================
-// ROTA PRINCIPAL
-// ==============================
-
 void paginaInicial() {
 
     String pagina = R"rawliteral(
@@ -203,35 +179,23 @@ void paginaInicial() {
     );
 }
 
-
-// ==============================
-// ROTA /capture
-// ==============================
-
 void capturarImagem() {
 
     Serial.println();
     Serial.println("Solicitacao de captura recebida.");
 
-    // Liga o flash em potência máxima
     digitalWrite(FLASH_GPIO_NUM, HIGH);
-
-    // Dá tempo para a iluminação estabilizar
     delay(150);
 
-    // Descarta um possível frame antigo
     camera_fb_t *frameAntigo = esp_camera_fb_get();
 
     if (frameAntigo) {
         esp_camera_fb_return(frameAntigo);
     }
-
     delay(80);
 
-    // Captura a imagem atual
     camera_fb_t *foto = esp_camera_fb_get();
 
-    // Desliga o flash
     digitalWrite(FLASH_GPIO_NUM, LOW);
 
     if (!foto) {
@@ -273,11 +237,6 @@ void capturarImagem() {
     );
 }
 
-
-// ==============================
-// SETUP
-// ==============================
-
 void setup() {
 
     Serial.begin(115200);
@@ -317,16 +276,12 @@ void setup() {
         return;
     }
 
-
-    // Página principal
     server.on(
         "/",
         HTTP_GET,
         paginaInicial
     );
 
-
-    // Captura JPEG
     server.on(
         "/capture",
         HTTP_GET,
@@ -350,11 +305,6 @@ void setup() {
         WiFi.localIP()
     );
 }
-
-
-// ==============================
-// LOOP
-// ==============================
 
 void loop() {
 
