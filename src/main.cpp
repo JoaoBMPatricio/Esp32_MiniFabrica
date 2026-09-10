@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WebServer.h>
 #include "esp_camera.h"
 #include "secrets.h"
 
@@ -10,6 +11,7 @@
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
+
 #define SIOD_GPIO_NUM     26
 #define SIOC_GPIO_NUM     27
 
@@ -25,6 +27,14 @@
 #define VSYNC_GPIO_NUM    25
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
+#define FLASH_GPIO_NUM    4
+
+
+// ==============================
+// SERVIDOR WEB
+// ==============================
+
+WebServer server(80);
 
 
 // ==============================
@@ -99,13 +109,13 @@ bool iniciarCamera() {
 
     config.pixel_format = PIXFORMAT_JPEG;
 
-    // 640x480
     config.frame_size = FRAMESIZE_VGA;
 
-    // Quanto menor, melhor a qualidade
     config.jpeg_quality = 10;
 
-    config.fb_count = 1;
+    config.fb_count = 2;
+    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
 
     esp_err_t resultado =
         esp_camera_init(&config);
@@ -133,46 +143,133 @@ bool iniciarCamera() {
 
 
 // ==============================
-// CAPTURA
+// ROTA PRINCIPAL
 // ==============================
 
-void capturarFoto() {
+void paginaInicial() {
+
+    String pagina = R"rawliteral(
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Mini Fabrica Inteligente</title>
+</head>
+
+<body>
+
+    <h1>Mini Fabrica Inteligente</h1>
+
+    <h2>Grupo 3 - ESP32-CAM</h2>
+
+    <p>
+        Clique no botão abaixo para capturar uma imagem.
+    </p>
+
+    <button onclick="capturar()">
+        Capturar imagem
+    </button>
+
+    <br><br>
+
+    <img
+        id="imagem"
+        style="max-width: 640px;"
+    >
+
+    <script>
+
+        function capturar() {
+
+            const imagem =
+                document.getElementById("imagem");
+
+            imagem.src =
+                "/capture?t=" + new Date().getTime();
+        }
+
+    </script>
+
+</body>
+
+</html>
+)rawliteral";
+
+    server.send(
+        200,
+        "text/html",
+        pagina
+    );
+}
+
+
+// ==============================
+// ROTA /capture
+// ==============================
+
+void capturarImagem() {
 
     Serial.println();
-    Serial.println("Capturando imagem...");
+    Serial.println("Solicitacao de captura recebida.");
 
-    camera_fb_t *foto =
-        esp_camera_fb_get();
+    // Liga o flash em potência máxima
+    digitalWrite(FLASH_GPIO_NUM, HIGH);
+
+    // Dá tempo para a iluminação estabilizar
+    delay(150);
+
+    // Descarta um possível frame antigo
+    camera_fb_t *frameAntigo = esp_camera_fb_get();
+
+    if (frameAntigo) {
+        esp_camera_fb_return(frameAntigo);
+    }
+
+    delay(80);
+
+    // Captura a imagem atual
+    camera_fb_t *foto = esp_camera_fb_get();
+
+    // Desliga o flash
+    digitalWrite(FLASH_GPIO_NUM, LOW);
 
     if (!foto) {
 
-        Serial.println(
-            "ERRO: nao foi possivel capturar."
+        Serial.println("Erro ao capturar imagem.");
+
+        server.send(
+            500,
+            "text/plain",
+            "Erro ao capturar imagem"
         );
 
         return;
     }
 
-    Serial.println(
-        "Imagem capturada!"
+    Serial.print("Nova imagem capturada: ");
+    Serial.print(foto->len);
+    Serial.println(" bytes");
+
+    server.setContentLength(foto->len);
+
+    server.send(
+        200,
+        "image/jpeg",
+        ""
     );
 
-    Serial.print(
-        "Tamanho do JPEG: "
-    );
+    WiFiClient cliente = server.client();
 
-    Serial.print(
+    cliente.write(
+        foto->buf,
         foto->len
-    );
-
-    Serial.println(
-        " bytes"
     );
 
     esp_camera_fb_return(foto);
 
     Serial.println(
-        "Memoria da imagem liberada."
+        "Imagem atual enviada ao navegador."
     );
 }
 
@@ -184,6 +281,9 @@ void capturarFoto() {
 void setup() {
 
     Serial.begin(115200);
+
+    pinMode(FLASH_GPIO_NUM, OUTPUT);
+    digitalWrite(FLASH_GPIO_NUM, LOW);
 
     delay(2000);
 
@@ -218,9 +318,37 @@ void setup() {
     }
 
 
-    delay(2000);
+    // Página principal
+    server.on(
+        "/",
+        HTTP_GET,
+        paginaInicial
+    );
 
-    capturarFoto();
+
+    // Captura JPEG
+    server.on(
+        "/capture",
+        HTTP_GET,
+        capturarImagem
+    );
+
+
+    server.begin();
+
+
+    Serial.println();
+    Serial.println(
+        "Servidor iniciado!"
+    );
+
+    Serial.print(
+        "Abra no navegador: http://"
+    );
+
+    Serial.println(
+        WiFi.localIP()
+    );
 }
 
 
@@ -230,5 +358,6 @@ void setup() {
 
 void loop() {
 
-    delay(1000);
+    server.handleClient();
+
 }
