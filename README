@@ -1,0 +1,153 @@
+# ESP32-CAM — Mini Fábrica Inteligente
+
+Módulo de visão computacional da **Mini Fábrica Inteligente**, responsável pela captura de imagens das peças utilizando uma **ESP32-CAM com câmera OV2640**.
+
+O sistema captura imagens dos QR Codes presentes nas peças da linha de produção e disponibiliza as imagens pela rede para posterior processamento e identificação.
+
+## 📌 Sobre o projeto
+
+A Mini Fábrica Inteligente simula uma linha de produção automatizada na qual peças identificadas por QR Codes percorrem uma esteira.
+
+O módulo ESP32-CAM é responsável pela aquisição das imagens utilizadas pelo sistema de reconhecimento.
+
+### Fluxo geral
+
+```text
+Peça chega ao ponto de leitura
+          ↓
+Esteira é interrompida
+          ↓
+ESP32-CAM captura a imagem
+          ↓
+Imagem é transmitida pela rede
+          ↓
+QR Code é reconhecido
+          ↓
+Dados da peça são processados
+```
+
+## 🚀 Funcionalidades
+
+* Conexão da ESP32-CAM à rede Wi-Fi
+* Inicialização da câmera OV2640
+* Captura de imagens em JPEG
+* Servidor HTTP integrado
+* Captura através da rota `/capture`
+* Interface web para testes
+* Descarte de frames anteriores para obtenção de imagens atualizadas
+* Utilização da PSRAM para armazenamento dos framebuffers
+
+## 🛠️ Tecnologias
+
+* C++
+* Arduino Framework
+* PlatformIO
+* ESP32
+* Wi-Fi
+* HTTP
+* HTML
+* Git
+
+## 🔧 Hardware
+
+* ESP32-CAM
+* Câmera OV2640
+* ESP32-CAM-MB
+* Cabo USB de dados
+
+## ⚙️ Configuração
+
+O projeto utiliza um arquivo separado para armazenar as credenciais da rede Wi-Fi.
+
+Crie:
+
+```text
+include/secrets.h
+```
+
+utilizando `secrets.example.h` como modelo.
+O arquivo `secrets.h` é ignorado pelo Git para evitar que as credenciais da rede sejam publicadas no repositório.
+
+## 📷 Câmera
+
+O projeto utiliza o sensor **OV2640** configurado para captura JPEG.
+A resolução utilizada atualmente é **VGA (640 × 480)**.
+
+O sistema prioriza frames recentes e descarta um frame antes da captura definitiva para reduzir a possibilidade de envio de uma imagem anterior armazenada no buffer.
+
+## 🌐 Servidor HTTP
+
+Após conectar-se ao Wi-Fi, a ESP32-CAM inicia um servidor HTTP na porta `80`.
+
+O endereço IP é informado pelo Serial Monitor durante a inicialização.
+
+### Página principal
+
+```text
+http://IP-DA-ESP32/
+```
+
+Disponibiliza uma interface simples para testar a captura da câmera.
+
+### Captura
+
+```text
+http://IP-DA-ESP32/capture
+```
+
+Realiza uma nova captura e retorna a imagem no formato `image/jpeg`.
+
+## 🔄 Processo de captura
+
+Quando `/capture` é solicitado:
+
+```text
+Requisição recebida
+        ↓
+Frame anterior é descartado
+        ↓
+Novo frame é obtido
+        ↓
+JPEG é enviado por HTTP
+        ↓
+Buffer é liberado
+```
+
+Esse comportamento é importante para que a imagem recebida corresponda à peça atualmente posicionada em frente à câmera.
+
+## ▶️ Execução
+
+Para acompanhar a inicialização acesse o monitor serial, e após a conexão Wi-Fi, acesse no navegador o endereço IP informado no Serial Monitor.
+
+## 🔳 QR Code
+
+A ESP32-CAM é responsável apenas pela **aquisição da imagem**.
+
+A imagem capturada será posteriormente utilizada pelo módulo de reconhecimento para:
+
+1. localizar o QR Code;
+2. decodificar seu conteúdo;
+3. identificar a peça;
+4. encaminhar as informações para os demais módulos da Mini Fábrica.
+
+## 🔗 Integração planejada
+
+Na operação final, a captura deverá ser acionada automaticamente pela linha de produção:
+
+```text
+Sensor detecta peça
+        ↓
+Esteira para
+        ↓
+ESP32-CAM é acionada
+        ↓
+Imagem é capturada
+        ↓
+Sistema reconhece o QR Code
+        ↓
+Processamento continua
+```
+
+## 👥 Equipe
+
+Projeto desenvolvido pelo **Grupo 3** como parte da **Mini Fábrica Inteligente**.
