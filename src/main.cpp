@@ -25,7 +25,47 @@
 #define PCLK_GPIO_NUM     22
 #define FLASH_GPIO_NUM    4
 
+#define FLASH_LEDC_CHANNEL 7
+#define FLASH_LEDC_FREQ    5000
+#define FLASH_LEDC_BITS    8
+#define FLASH_BRIGHTNESS   26
+
 WebServer server(80);
+
+void configurarFlash() {
+
+    ledcSetup(
+        FLASH_LEDC_CHANNEL,
+        FLASH_LEDC_FREQ,
+        FLASH_LEDC_BITS
+    );
+
+    ledcAttachPin(
+        FLASH_GPIO_NUM,
+        FLASH_LEDC_CHANNEL
+    );
+
+    ledcWrite(
+        FLASH_LEDC_CHANNEL,
+        0
+    );
+}
+
+void ligarFlash() {
+
+    ledcWrite(
+        FLASH_LEDC_CHANNEL,
+        FLASH_BRIGHTNESS
+    );
+}
+
+void desligarFlash() {
+
+    ledcWrite(
+        FLASH_LEDC_CHANNEL,
+        0
+    );
+}
 
 void conectarWiFi() {
 
@@ -184,7 +224,7 @@ void capturarImagem() {
     Serial.println();
     Serial.println("Solicitacao de captura recebida.");
 
-    digitalWrite(FLASH_GPIO_NUM, HIGH);
+    ligarFlash();
     delay(150);
 
     camera_fb_t *frameAntigo = esp_camera_fb_get();
@@ -196,7 +236,7 @@ void capturarImagem() {
 
     camera_fb_t *foto = esp_camera_fb_get();
 
-    digitalWrite(FLASH_GPIO_NUM, LOW);
+    desligarFlash();
 
     if (!foto) {
 
@@ -241,8 +281,7 @@ void setup() {
 
     Serial.begin(115200);
 
-    pinMode(FLASH_GPIO_NUM, OUTPUT);
-    digitalWrite(FLASH_GPIO_NUM, LOW);
+    configurarFlash();
 
     delay(2000);
 
