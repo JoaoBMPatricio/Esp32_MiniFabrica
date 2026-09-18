@@ -50,6 +50,7 @@ void configurarSensorCamera() {
         return;
     }
 
+    sensor->set_vflip(sensor, 1);
     sensor->set_brightness(sensor, 1);
     sensor->set_contrast(sensor, 2);
     sensor->set_saturation(sensor, -2);
@@ -137,7 +138,7 @@ bool iniciarCamera() {
 
     config.pixel_format = PIXFORMAT_JPEG;
 
-    config.frame_size = FRAMESIZE_VGA;
+    config.frame_size = FRAMESIZE_SVGA;
 
     config.jpeg_quality = 10;
 
