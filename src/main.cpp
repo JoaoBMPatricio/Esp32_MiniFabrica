@@ -1,8 +1,10 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
 #include "esp_camera.h"
 #include "secrets.h"
+#include "qr_config.h"
 
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -26,6 +28,93 @@
 #define FLASH_GPIO_NUM    4
 
 WebServer server(80);
+bool cameraPronta = false;
+bool gatilhoArmado = false;
+int nivelGatilho = HIGH;
+uint32_t mudancaGatilho = 0;
+String ultimoResultado = "Nenhuma leitura realizada.";
+int ultimoStatus = 0;
+
+camera_fb_t *obterFotoAtual() {
+    if (!cameraPronta) {
+        return nullptr;
+    }
+
+    delay(QR_SETTLE_MS);
+    // Um unico buffer: eliminar o quadro pendente e o seguinte.
+    for (int i = 0; i < 2; ++i) {
+        camera_fb_t *antigo = esp_camera_fb_get();
+        if (!antigo) {
+            return nullptr;
+        }
+        esp_camera_fb_return(antigo);
+    }
+    return esp_camera_fb_get();
+}
+
+void lerQrCode() {
+    digitalWrite(QR_BUSY_PIN, HIGH);
+    ultimoStatus = 503;
+    ultimoResultado = "Camera ou Wi-Fi indisponivel.";
+
+    if (cameraPronta && WiFi.status() == WL_CONNECTED) {
+        if (QR_SERVER_URL[0] == '\0') {
+            ultimoResultado = "Configure QR_SERVER_URL em include/qr_config.h.";
+        } else {
+            camera_fb_t *foto = obterFotoAtual();
+            if (!foto) {
+                ultimoStatus = 500;
+                ultimoResultado = "Falha ao capturar imagem.";
+            } else {
+                WiFiClient cliente;
+                HTTPClient http;
+                http.setConnectTimeout(3000);
+                http.setTimeout(QR_HTTP_TIMEOUT_MS);
+                if (http.begin(cliente, QR_SERVER_URL)) {
+                    http.addHeader("Content-Type", "image/jpeg");
+                    int codigo = http.POST(foto->buf, foto->len);
+                    esp_camera_fb_return(foto);
+                    if (codigo > 0) {
+                        ultimoStatus = codigo;
+                        ultimoResultado = http.getString();
+                    } else {
+                        ultimoStatus = 502;
+                        ultimoResultado = "Falha HTTP: " + HTTPClient::errorToString(codigo);
+                    }
+                    http.end();
+                } else {
+                    esp_camera_fb_return(foto);
+                    ultimoStatus = 502;
+                    ultimoResultado = "URL do servidor invalida.";
+                }
+            }
+        }
+    }
+
+    Serial.printf("Leitura QR - HTTP %d: ", ultimoStatus);
+    Serial.println(ultimoResultado);
+    digitalWrite(QR_BUSY_PIN, LOW);
+    // Exigir nova liberacao estavel apos cada operacao.
+    gatilhoArmado = false;
+    nivelGatilho = digitalRead(QR_TRIGGER_PIN);
+    mudancaGatilho = millis();
+}
+
+void verificarGatilho() {
+    int nivel = digitalRead(QR_TRIGGER_PIN);
+    if (nivel != nivelGatilho) {
+        nivelGatilho = nivel;
+        mudancaGatilho = millis();
+    }
+    if (millis() - mudancaGatilho < QR_DEBOUNCE_MS) {
+        return;
+    }
+    if (nivel == HIGH) {
+        gatilhoArmado = true;
+    } else if (gatilhoArmado) {
+        lerQrCode();
+    }
+}
 
 void desligarFlash() {
 
@@ -142,8 +231,8 @@ bool iniciarCamera() {
 
     config.jpeg_quality = 10;
 
-    config.fb_count = 2;
-    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.fb_count = 1;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
 
     esp_err_t resultado =
@@ -196,6 +285,8 @@ void paginaInicial() {
     <button onclick="capturar()">
         Capturar imagem
     </button>
+    <button id="ler" onclick="lerQr()">Ler QR Code</button>
+    <pre id="resultado" aria-live="polite"></pre>
 
     <br><br>
 
@@ -205,6 +296,35 @@ void paginaInicial() {
     >
 
     <script>
+
+        async function atualizarResultado() {
+            try {
+                const resposta = await fetch('/result', {cache: 'no-store'});
+                document.getElementById('resultado').textContent = await resposta.text();
+            } catch (erro) {
+                document.getElementById('resultado').textContent = 'ESP32-CAM indisponivel.';
+            }
+        }
+
+        async function lerQr() {
+            const botao = document.getElementById('ler');
+            botao.disabled = true;
+            document.getElementById('resultado').textContent = 'Processando...';
+            try {
+                const resposta = await fetch('/read', {method: 'POST'});
+                document.getElementById('resultado').textContent = await resposta.text();
+            } catch (erro) {
+                document.getElementById('resultado').textContent = 'Falha de conexao.';
+            } finally {
+                botao.disabled = false;
+            }
+        }
+
+        async function acompanhar() {
+            if (!document.getElementById('ler').disabled) await atualizarResultado();
+            setTimeout(acompanhar, 2000);
+        }
+        acompanhar();
 
         function capturar() {
 
@@ -234,16 +354,8 @@ void capturarImagem() {
     Serial.println();
     Serial.println("Solicitacao de captura recebida.");
 
-    delay(150);
-
-    camera_fb_t *frameAntigo = esp_camera_fb_get();
-
-    if (frameAntigo) {
-        esp_camera_fb_return(frameAntigo);
-    }
-    delay(80);
-
-    camera_fb_t *foto = esp_camera_fb_get();
+    digitalWrite(QR_BUSY_PIN, HIGH);
+    camera_fb_t *foto = obterFotoAtual();
 
     if (!foto) {
 
@@ -255,6 +367,7 @@ void capturarImagem() {
             "Erro ao capturar imagem"
         );
 
+        digitalWrite(QR_BUSY_PIN, LOW);
         return;
     }
 
@@ -278,6 +391,7 @@ void capturarImagem() {
     );
 
     esp_camera_fb_return(foto);
+    digitalWrite(QR_BUSY_PIN, LOW);
 
     Serial.println(
         "Imagem atual enviada ao navegador."
@@ -287,6 +401,10 @@ void capturarImagem() {
 void setup() {
 
     Serial.begin(115200);
+
+    pinMode(QR_TRIGGER_PIN, INPUT_PULLUP);
+    digitalWrite(QR_BUSY_PIN, HIGH);
+    pinMode(QR_BUSY_PIN, OUTPUT);
 
     desligarFlash();
 
@@ -313,7 +431,8 @@ void setup() {
     conectarWiFi();
 
 
-    if (!iniciarCamera()) {
+    cameraPronta = iniciarCamera();
+    if (!cameraPronta) {
 
         Serial.println(
             "Falha critica na camera."
@@ -334,8 +453,22 @@ void setup() {
         capturarImagem
     );
 
+    server.on("/read", HTTP_POST, []() {
+        lerQrCode();
+        server.sendHeader("Cache-Control", "no-store");
+        server.send(ultimoStatus, "text/plain; charset=utf-8", ultimoResultado);
+    });
+    server.on("/result", HTTP_GET, []() {
+        server.sendHeader("Cache-Control", "no-store");
+        server.send(200, "text/plain; charset=utf-8",
+            String("HTTP ") + ultimoStatus + "\n" + ultimoResultado);
+    });
+
 
     server.begin();
+    digitalWrite(QR_BUSY_PIN, LOW);
+    nivelGatilho = digitalRead(QR_TRIGGER_PIN);
+    mudancaGatilho = millis();
 
 
     Serial.println();
@@ -355,5 +488,8 @@ void setup() {
 void loop() {
 
     server.handleClient();
+    if (cameraPronta) {
+        verificarGatilho();
+    }
 
 }
