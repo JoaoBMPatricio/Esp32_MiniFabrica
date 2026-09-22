@@ -1,0 +1,102 @@
+from datetime import datetime
+import cv2
+import numpy as np
+from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
+
+app = Flask(__name__)
+
+# Configuração da base de dados SQL (SQLite local)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fabrica.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+
+# Definição da tabela SQL para armazenar as leituras de QR Code / Visão
+class LeituraQR(db.Model):
+  __tablename__ = 'leituras_qr'
+
+  id = db.Column(db.Integer, primary_key=True)
+  conteudo = db.Column(db.String(255), nullable=False)
+  status_http = db.Column(db.Integer, nullable=False)
+  data_hora = db.Column(
+      db.DateTime, default=datetime.utcnow, nullable=False
+  )
+
+
+# Cria a tabela automaticamente ao iniciar
+with app.app_context():
+  db.create_all()
+
+
+# Função para decodificar o QR Code usando OpenCV
+def decodificar_qr(imagem_bytes):
+  np_arr = np.frombuffer(imagem_bytes, np.uint8)
+  imagem = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+  if imagem is None:
+    return None
+
+  detector = cv2.QRCodeDetector()
+  valor, points, _ = detector.detectAndDecode(imagem)
+
+  if valor:
+    return valor
+  return None
+
+
+# Rota principal chamada pelo ESP32-CAM para enviar a foto e gravar no SQL
+@app.route('/api/qr', methods=['POST'])
+def receber_imagem_esp32():
+  if request.content_type != 'image/jpeg':
+    return jsonify({'ok': False, 'erro': 'Tipo de conteúdo inválido'}), 415
+
+  imagem_bytes = request.data
+  if not imagem_bytes:
+    return jsonify({'ok': False, 'erro': 'Imagem vazia'}), 400
+
+  # Decodifica o QR Code da imagem enviada pela ESP32-CAM
+  conteudo_lido = decodificar_qr(imagem_bytes)
+
+  if not conteudo_lido:
+    return jsonify({'ok': False, 'conteudo': None}), 422
+
+  try:
+    # Tarefa do Aluno B4: Salvar o resultado com sucesso no Banco de Dados SQL
+    nova_leitura = LeituraQR(conteudo=conteudo_lido, status_http=200)
+    db.session.add(nova_leitura)
+    db.session.commit()
+
+    print(
+        f'[Aluno B4] QR Code lido e gravado no Banco de Dados SQL:'
+        f' {conteudo_lido}'
+    )
+    return jsonify({'ok': True, 'conteudo': conteudo_lido}), 200
+
+  except Exception as e:
+    db.session.rollback()
+    print(f'[Erro B4] Falha ao salvar no banco: {str(e)}')
+    return (
+        jsonify({'ok': False, 'erro': 'Erro interno ao gravar no banco'}),
+        500,
+    )
+
+
+# Rota auxiliar para a Equipe C consultar os dados guardados
+@app.route('/api/leituras', methods=['GET'])
+def listar_leituras():
+  leituras = LeituraQR.query.order_by(LeituraQR.data_hora.desc()).all()
+  resultado = [
+      {
+          'id': l.id,
+          'conteudo': l.conteudo,
+          'data_hora': l.data_hora.strftime('%Y-%m-%d %H:%M:%S'),
+      }
+      for l in leituras
+  ]
+  return jsonify(resultado), 200
+
+
+if __name__ == '__main__':
+  app.run(host='0.0.0.0', port=5000, debug=True)
