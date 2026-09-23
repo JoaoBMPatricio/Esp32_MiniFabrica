@@ -5,3 +5,6 @@ include/secrets.h
 Thumbs.db
 .venv/
 __pycache__/
+server/leituras.db
+server/leituras.db-shm
+server/leituras.db-wal

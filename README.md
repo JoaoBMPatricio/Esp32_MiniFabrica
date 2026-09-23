@@ -9,12 +9,9 @@ Arduino detecta a peça e para a esteira
   -> dispara a ESP32-CAM
   -> ESP32 captura JPEG e envia pela rede
   -> servidor lê o QR Code
+  -> servidor registra ID, dado, data/hora e quantidade no SQLite
   -> resultado na página da ESP32 e no monitor serial
 ```
-
-Este repositório contém o firmware da ESP32-CAM e o servidor. O programa do
-Arduino que controla sensor/motor, o retorno da palavra ao Arduino e a retomada
-automática da esteira ainda não estão implementados aqui.
 
 ## Requisitos
 
@@ -90,7 +87,8 @@ Aguarde o monitor serial mostrar o IP da ESP32-CAM.
 3. Use **Capturar imagem** para conferir enquadramento e foco.
 4. Use **Ler QR Code** para capturar, enviar ao servidor e exibir o conteúdo.
 
-Uma leitura válida retorna, por exemplo, `{"ok":true,"conteudo":"AZUL"}`.
+Uma leitura válida retorna o conteúdo e o registro salvo, com ID, dado, data/hora
+e quantidade acumulada daquele conteúdo.
 O texto é preservado: não precisa ser link nem pertencer a uma lista de palavras.
 Uma falha exibe um erro e substitui o resultado anterior.
 
@@ -121,8 +119,9 @@ liberado por pelo menos 50 ms após o fim da operação. Pulsos durante uma oper
 não são enfileirados. Preveja timeout no Arduino, mantendo a peça parada em caso de falha.
 
 **Ocupada = LOW indica o fim da tentativa, não sucesso no QR Code.**
-A palavra fica disponível no HTTP/Serial da ESP32, mas ainda não é enviada ao
-Arduino. Não use esse sinal sozinho para confirmar a classificação da peça.
+A palavra fica disponível no HTTP/Serial da ESP32 e as leituras válidas são
+gravadas pelo servidor no SQLite, mas o conteúdo ainda não é enviado ao Arduino.
+Não use esse sinal sozinho para confirmar a classificação da peça.
 
 ## Configurações e arquivos
 
@@ -133,6 +132,7 @@ Arduino. Não use esse sinal sozinho para confirmar a classificação da peça.
 | `include/secrets.h` | Credenciais Wi-Fi locais |
 | [platformio.ini](platformio.ini) | Placa, framework e gravação |
 | [server/app.py](server/app.py) | API de leitura com OpenCV |
+| `server/leituras.db` | Histórico SQLite criado automaticamente |
 | [server/README.md](server/README.md) | API, testes e solução de erros |
 
 A captura usa JPEG SVGA (800 × 600), um buffer em PSRAM, inversão vertical e

@@ -1,8 +1,8 @@
 # Servidor de leitura de QR Code
 
-Recebe JPEG da ESP32-CAM, decodifica o QR Code com OpenCV e retorna JSON.
-Flask define a API e Waitress atende as conexoes HTTP. O servidor nao controla
-o motor, nao abre links e nao salva imagens ou historico em disco.
+Recebe JPEG da ESP32-CAM, decodifica o QR Code com OpenCV, registra a leitura
+em SQLite e retorna JSON. Flask define a API e Waitress atende as conexoes HTTP.
+O servidor nao controla o motor, nao abre links e nao salva as imagens.
 
 Para configurar Wi-Fi, gravar a placa e ligar o Arduino, siga o
 [guia principal](../README).
@@ -46,7 +46,9 @@ Atualize tambem a porta na URL da ESP32. `QR_HOST` altera a interface de escuta;
 | Metodo e rota | Resposta |
 | --- | --- |
 | `GET /health` | `{"ok":true}` quando o servidor esta ativo |
-| `POST /api/qr` | Conteudo do QR Code ou erro de leitura |
+| `POST /api/qr` | Reconhece e registra o QR Code |
+| `GET /api/leituras` | Historico das ultimas leituras |
+| `GET /api/resumo` | Quantidade e ultima leitura por dado |
 
 Envie os bytes JPEG diretamente no corpo de `POST /api/qr`, com
 `Content-Type: image/jpeg`. Nao use multipart, base64 ou JSON no envio.
@@ -56,7 +58,16 @@ Imagens com mais de um QR detectado sao rejeitadas.
 Sucesso, HTTP 200:
 
 ```json
-{"ok": true, "conteudo": "AZUL"}
+{
+  "ok": true,
+  "conteudo": "AZUL",
+  "registro": {
+    "id": 1,
+    "dado": "AZUL",
+    "data_hora": "2026-09-22T15:20:00-03:00",
+    "quantidade": 1
+  }
+}
 ```
 
 Falha de leitura, HTTP 422:
@@ -73,7 +84,20 @@ Falha de leitura, HTTP 422:
 | 422 | Sem QR legivel, multiplos QRs detectados ou texto longo demais |
 
 O texto e preservado, incluindo maiusculas e espacos. Nao ha validacao de palavra
-unica nem lista de categorias. As leituras bem-sucedidas aparecem no terminal.
+unica nem lista de categorias. As leituras bem-sucedidas aparecem no terminal e
+sao gravadas em `server/leituras.db`. `quantidade` e o total acumulado daquele
+mesmo dado no momento da leitura.
+
+`GET /api/leituras?limite=50` retorna os registros mais recentes; o limite aceito
+vai de 1 a 200. `GET /api/resumo` retorna uma linha por dado, adequada para a
+integracao inicial com o dashboard da Equipe C.
+
+Para armazenar o banco em outro local, defina `QR_DATABASE` antes de iniciar:
+
+```powershell
+$env:QR_DATABASE = 'C:\dados\mini-fabrica.db'
+.\.venv\Scripts\python.exe server/app.py
+```
 
 ## Rotas da ESP32-CAM
 
@@ -105,9 +129,10 @@ Execute a suite automatizada sem precisar iniciar o servidor:
 .\.venv\Scripts\python.exe -m unittest discover -s server -p "test_*.py" -v
 ```
 
-Os testes cobrem texto, rotacao, multiplos QRs, ausencia de QR, imagens invalidas
-e limites de entrada. Usam imagens sinteticas; foco, iluminacao, movimento e
-temporizacao precisam de teste na camera e na esteira reais.
+Os testes cobrem texto, rotacao, multiplos QRs, ausencia de QR, imagens invalidas,
+limites de entrada, gravacao no banco, historico e contagem. Usam imagens
+sinteticas; foco, iluminacao, movimento e temporizacao precisam de teste na
+camera e na esteira reais.
 
 ## Solucao de problemas
 
