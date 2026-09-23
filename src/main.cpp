@@ -189,6 +189,11 @@ void conectarWiFi() {
 
     Serial.print("Endereco IP: ");
     Serial.println(WiFi.localIP());
+    Serial.print("IP da ESP32: ");
+    Serial.println(WiFi.localIP());
+
+    Serial.print("Gateway: ");
+    Serial.println(WiFi.gatewayIP());
 }
 
 bool iniciarCamera() {
