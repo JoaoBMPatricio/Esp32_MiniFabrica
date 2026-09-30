@@ -1,6 +1,7 @@
-## Configuração do Wi-Fi
+## Configurações locais
 
-O arquivo `secrets.h` não está incluído no repositório por segurança.
+Os arquivos `secrets.h` e `qr_config.h` não são incluídos no repositório por
+segurança e para não fixar o endereço de um computador específico.
 
 Antes de compilar o projeto:
 
@@ -8,3 +9,6 @@ Antes de compilar o projeto:
 2. Faça uma cópia de `secrets.example.h`.
 3. Renomeie a cópia para `secrets.h`.
 4. Preencha suas credenciais Wi-Fi:
+
+Depois, copie `qr_config.example.h` para `qr_config.h` e substitua
+`IP_DO_SERVIDOR` pelo IPv4 do computador que executará `server/app.py`.

@@ -1,150 +1,117 @@
-# Servidor de leitura de QR Code
+# Servidor oficial de QR Code
 
-Recebe JPEG da ESP32-CAM, decodifica o QR Code com OpenCV, registra a leitura
-em SQLite e retorna JSON. Flask define a API e Waitress atende as conexoes HTTP.
-O servidor nao controla o motor, nao abre links e nao salva as imagens.
+`app.py` é a única implementação oficial. Ele recebe JPEG da ESP32-CAM,
+reconhece exatamente um QR Code industrial, valida seus campos e registra a
+leitura no SQLite. Os programas em `legacy/` são apenas referência histórica.
 
-Para configurar Wi-Fi, gravar a placa e ligar o Arduino, siga o
-[guia principal](../README).
+## Instalação e execução
 
-## Iniciar
-
-Execute na raiz do projeto, em PowerShell. Na primeira execucao:
+Execute na raiz do repositório:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r server/requirements.txt
-```
-
-Em cada sessao:
-
-```powershell
 .\.venv\Scripts\python.exe server/app.py
 ```
 
-Mantenha o terminal aberto; `Ctrl+C` encerra o processo. O servidor escuta em
-`0.0.0.0:5000`, acessivel pelas interfaces de rede do computador. Use somente
-em rede local confiavel, pois esta API nao tem autenticacao.
+O Waitress escuta por padrão em `0.0.0.0:5000`. O SQLite padrão fica em
+`server/leituras.db`. As variáveis opcionais são `QR_HOST`, `QR_PORT` e
+`QR_DATABASE`.
 
-Teste [localhost:5000/health](http://localhost:5000/health).
-Para a ESP32, configure `http://IP-DO-COMPUTADOR:5000/api/qr` em
-[include/qr_config.h](../include/qr_config.h) e grave novamente o firmware.
-Nao existe pagina de interface na raiz deste servidor.
+## Contrato do QR
 
-Para usar outra porta:
-
-```powershell
-$env:QR_PORT = '5001'
-.\.venv\Scripts\python.exe server/app.py
+```text
+PECA;NOME_PECA;LOTE;MATERIAL;STATUS
 ```
 
-Atualize tambem a porta na URL da ESP32. `QR_HOST` altera a interface de escuta;
-`127.0.0.1` limita o acesso ao computador e impede a conexao da ESP32.
+São aceitos `APROVADA`, `REPROVADA`, `INSPECAO` e `INSPEÇÃO`. O conteúdo
+original permanece em `dado`; os cinco campos também são armazenados
+separadamente. Uma leitura representa uma peça e sempre recebe `quantidade = 1`.
 
-## API do servidor
+## API
 
-| Metodo e rota | Resposta |
-| --- | --- |
-| `GET /health` | `{"ok":true}` quando o servidor esta ativo |
-| `POST /api/qr` | Reconhece e registra o QR Code |
-| `GET /api/leituras` | Historico das ultimas leituras |
-| `GET /api/resumo` | Quantidade e ultima leitura por dado |
+### GET /health
 
-Envie os bytes JPEG diretamente no corpo de `POST /api/qr`, com
-`Content-Type: image/jpeg`. Nao use multipart, base64 ou JSON no envio.
-Limites: 2 MiB por requisicao, 4 megapixels por imagem e 256 caracteres no texto.
-Imagens com mais de um QR detectado sao rejeitadas.
-
-Sucesso, HTTP 200:
+Verifica processo, OpenCV, banco e tabela. Retorna HTTP 200 somente quando o
+serviço está pronto:
 
 ```json
-{
-  "ok": true,
-  "conteudo": "AZUL",
-  "registro": {
-    "id": 1,
-    "dado": "AZUL",
-    "data_hora": "2026-09-22T15:20:00-03:00",
-    "quantidade": 1
-  }
-}
+{"ok": true, "status": "ready", "banco": "ready", "opencv": "4.x"}
 ```
 
-Falha de leitura, HTTP 422:
+### POST /api/qr
 
-```json
-{"ok": false, "erro": "Nenhum QR Code legivel.", "conteudo": null}
+Cabeçalhos obrigatórios:
+
+```text
+Content-Type: image/jpeg
+X-Operation-Id: identificador-unico-da-operacao
 ```
 
-| HTTP | Significado |
-| --- | --- |
-| 400 | Imagem vazia, invalida ou falha de decodificacao |
-| 413 | Limite de bytes ou resolucao excedido |
-| 415 | Content-Type diferente de image/jpeg |
-| 422 | Sem QR legivel, multiplos QRs detectados ou texto longo demais |
+O corpo contém os bytes JPEG, sem multipart, Base64 ou JSON. O identificador
+aceita de 1 a 128 letras, números, `.`, `_`, `-` e `:`. Repetir o mesmo
+identificador devolve o registro existente com `duplicate: true`.
 
-O texto e preservado, incluindo maiusculas e espacos. Nao ha validacao de palavra
-unica nem lista de categorias. As leituras bem-sucedidas aparecem no terminal e
-sao gravadas em `server/leituras.db`. `quantidade` e o total acumulado daquele
-mesmo dado no momento da leitura.
+Limites: 2 MiB por requisição, 4 megapixels por imagem, 256 caracteres no texto
+total e limites específicos por campo. Uma captura com mais de um QR legível é
+rejeitada.
 
-`GET /api/leituras?limite=50` retorna os registros mais recentes; o limite aceito
-vai de 1 a 200. `GET /api/resumo` retorna uma linha por dado, adequada para a
-integracao inicial com o dashboard da Equipe C.
-
-Para armazenar o banco em outro local, defina `QR_DATABASE` antes de iniciar:
+Exemplo manual com um arquivo:
 
 ```powershell
-$env:QR_DATABASE = 'C:\dados\mini-fabrica.db'
-.\.venv\Scripts\python.exe server/app.py
+curl.exe -H "Content-Type: image/jpeg" `
+  -H "X-Operation-Id: teste-manual-001" `
+  --data-binary "@foto.jpg" `
+  http://localhost:5000/api/qr
 ```
 
-## Rotas da ESP32-CAM
+### GET /api/leituras
 
-Estas rotas usam `http://IP-DA-ESP32` na porta 80, nao a porta do servidor Python.
+`/api/leituras?limite=50` retorna o total existente e os registros mais
+recentes. O limite aceito fica entre 1 e 200.
 
-| Metodo e rota | Funcao |
+### GET /api/resumo
+
+Retorna:
+
+- `total_pecas`;
+- `por_peca`;
+- `por_status`;
+- `por_lote`;
+- dez `leituras_recentes`.
+
+Esses dados formam o contrato inicial para a Equipe C.
+
+## Erros
+
+Erros esperados são sempre JSON com `ok`, `erro` e `mensagem`.
+
+| HTTP | Exemplos |
 | --- | --- |
-| `GET /` | Pagina com botoes de teste e resultado |
-| `GET /capture` | Nova foto JPEG, sem decodificar QR |
-| `POST /read` | Captura e envio ao servidor, como no disparo por GPIO |
-| `GET /result` | Ultimo status e resposta em texto |
+| 400 | imagem vazia/inválida ou operation_id inválido |
+| 404 | rota inexistente |
+| 405 | método incorreto |
+| 413 | bytes ou resolução acima do limite |
+| 415 | Content-Type diferente de `image/jpeg` |
+| 422 | QR ausente, múltiplo ou industrialmente inválido |
+| 503 | banco indisponível ou bloqueado |
 
-O resultado aparece na pagina e no monitor serial da ESP32. Falhas de rede
-tambem sao exibidas; HTTP 502 indica falha de comunicacao HTTP.
-`GET /result` retorna HTTP 200 para a consulta: o status da ultima leitura
-esta no corpo. A ESP32 guarda apenas o ultimo resultado em memoria e o perde ao reiniciar.
+## Banco e migração
+
+O esquema de referência está em `schema.sql`. A inicialização de `app.py` usa
+`PRAGMA table_info` e adiciona as colunas ausentes sem apagar linhas. Registros
+anteriores recebem `operation_id` no formato `legacy-ID`, quantidade 1 e campos
+industriais quando o texto antigo puder ser validado.
+
+Uma linha antiga cujo conteúdo não seja industrial é preservada com campos
+industriais nulos. Bancos com esquema desconhecido fora da tabela oficial não
+são fundidos automaticamente. Faça backup do `.db` antes de migrações importantes.
 
 ## Testes
-
-Com o servidor ativo, envie uma foto JPEG existente:
-
-```powershell
-curl.exe -H "Content-Type: image/jpeg" --data-binary "@foto.jpg" http://localhost:5000/api/qr
-```
-
-Execute a suite automatizada sem precisar iniciar o servidor:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s server -p "test_*.py" -v
 ```
 
-Os testes cobrem texto, rotacao, multiplos QRs, ausencia de QR, imagens invalidas,
-limites de entrada, gravacao no banco, historico e contagem. Usam imagens
-sinteticas; foco, iluminacao, movimento e temporizacao precisam de teste na
-camera e na esteira reais.
-
-## Solucao de problemas
-
-| Sintoma | Verificar |
-| --- | --- |
-| /health nao responde | Servidor iniciado, endereco e porta corretos |
-| Porta ocupada | Use a instancia existente ou escolha outra porta com QR_PORT |
-| ESP32 retorna falha HTTP | IP do computador, servidor ativo, rede acessivel e firewall |
-| Funciona no computador, mas nao na ESP32 | Nao usar localhost na placa; conferir isolamento de clientes no Wi-Fi |
-| HTTP 422 | Um unico QR inteiro na imagem, margem branca, foco e iluminacao |
-| Foto borrada | Parada mecanica, tempo de estabilizacao e exposicao em src/main.cpp |
-| GPIO nao dispara | GND comum, nivel de 3,3 V, liberacao de 50 ms e sequencia do guia principal |
-
-Referencias: [OpenCV QRCodeDetector](https://docs.opencv.org/4.x/de/dc3/classcv_1_1QRCodeDetector.html)
-e [Flask](https://flask.palletsprojects.com/en/stable/api/).
+Os testes não iniciam o servidor de rede e não usam o banco de produção; cada
+caso cria um banco temporário.
